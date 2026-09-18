@@ -1,0 +1,87 @@
+/* ==========================================================================
+   Highlighted Folders — Dia-style folder grouping for Zen Browser
+   --------------------------------------------------------------------------
+   v2 — fixes two bugs found after real-world testing:
+   1. Background wasn't visible: Zen paints the header's fill through its
+      own ::before pseudo-element (see zen-folders.css — that's the exact
+      layer their hover-highlight uses). We were painting the base color on
+      the element itself, which sits underneath that pseudo-element.
+   2. Colors looked random: previously colors were assigned by DOM
+      position (nth-of-type), which shifts when Zen re-renders the sidebar.
+      Colors are now set by companion-script highlighted-folders.uc.js,
+      which hashes each folder's stable internal id into a color, so a
+      given folder keeps the same color across restarts/reordering.
+      This file falls back to a position-based color if the script isn't
+      loaded, so it still does *something* CSS-only.
+   ========================================================================== */
+
+:root {
+  --hf-color-1: #7c9eff;
+  --hf-color-2: #ff9f7c;
+  --hf-color-3: #7cffb3;
+  --hf-color-4: #d67cff;
+  --hf-color-5: #ffe27c;
+  --hf-color-6: #7cf0ff;
+
+  --hf-bg-opacity: 16%;
+  --hf-bg-opacity-hover: 26%;
+  --hf-radius: 8px;
+}
+
+/* Fallback-only color assignment (used if the .uc.js script isn't loaded).
+   Once the script runs, it sets --hf-color inline on each zen-folder,
+   which always wins over this since inline style beats a stylesheet rule. */
+zen-folder:nth-of-type(6n+1) { --hf-color-fallback: var(--hf-color-1); }
+zen-folder:nth-of-type(6n+2) { --hf-color-fallback: var(--hf-color-2); }
+zen-folder:nth-of-type(6n+3) { --hf-color-fallback: var(--hf-color-3); }
+zen-folder:nth-of-type(6n+4) { --hf-color-fallback: var(--hf-color-4); }
+zen-folder:nth-of-type(6n+5) { --hf-color-fallback: var(--hf-color-5); }
+zen-folder:nth-of-type(6n)   { --hf-color-fallback: var(--hf-color-6); }
+
+/* --------------------------------------------------------------------
+   Folder header row — background painted on the SAME layer Zen uses
+   for its own hover state, so it's guaranteed visible.
+   -------------------------------------------------------------------- */
+zen-folder > .tab-group-label-container::before {
+  background-color: color-mix(
+    in srgb,
+    var(--hf-color, var(--hf-color-fallback, var(--zen-primary-color)))
+    var(--hf-bg-opacity),
+    transparent
+  ) !important;
+  border-radius: var(--hf-radius) !important;
+}
+
+zen-folder > .tab-group-label-container:hover::before {
+  background-color: color-mix(
+    in srgb,
+    var(--hf-color, var(--hf-color-fallback, var(--zen-primary-color)))
+    var(--hf-bg-opacity-hover),
+    transparent
+  ) !important;
+}
+
+zen-folder > .tab-group-label-container .tab-group-label {
+  font-weight: 600 !important;
+}
+
+/* Recolor the folder icon itself (same custom properties Zen's own icon
+   SVG reads from — see ZenFolder.mjs / zen-folders.css). */
+zen-folder {
+  --zen-folder-behind-bgcolor: color-mix(in srgb, var(--hf-color, var(--hf-color-fallback, var(--zen-primary-color))) 60%, gray) !important;
+  --zen-folder-front-bgcolor: color-mix(in srgb, var(--hf-color, var(--hf-color-fallback, var(--zen-primary-color))), white 70%) !important;
+  --zen-folder-stroke: color-mix(in srgb, var(--hf-color, var(--hf-color-fallback, var(--zen-primary-color))) 50%, black) !important;
+  margin-block-end: 4px !important;
+}
+
+/* --------------------------------------------------------------------
+   Child tabs inside an open folder — indent + connecting rail
+   -------------------------------------------------------------------- */
+zen-folder > .tab-group-container {
+  border-inline-start: 2px solid color-mix(
+    in srgb,
+    var(--hf-color, var(--hf-color-fallback, var(--zen-primary-color))) 35%,
+    transparent
+  ) !important;
+  padding-inline-start: 6px !important;
+}
