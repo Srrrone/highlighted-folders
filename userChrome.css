@@ -100,10 +100,6 @@ zen-folder:not([collapsed]) {
     inset 0 0 0 1px color-mix(in srgb, var(--hf-resolved-color) 22%, transparent) !important;
 }
 
-zen-folder:not([collapsed]) > .tab-group-label-container .tab-group-label {
-  color: var(--toolbar-color) !important;
-}
-
 /* Hover: fills the header the same way, whether the folder is open or
    still collapsed — painted on Zen's own ::before layer so it's
    guaranteed visible (see the note above about that paint order). */
@@ -111,8 +107,13 @@ zen-folder > .tab-group-label-container:hover::before {
   background-color: color-mix(in srgb, var(--hf-resolved-color) var(--hf-bg-opacity-hover), transparent) !important;
 }
 
-zen-folder > .tab-group-label-container:hover .tab-group-label {
-  color: var(--toolbar-color) !important;
+/* But when the folder is already open, don't let hovering the header
+   layer a second, brighter fill on top of the panel's own fill —
+   without this, the header reads visibly brighter than the rest of the
+   block on hover instead of the whole thing reading as one continuous
+   highlight. Keeping it at the same opacity as the panel fixes that. */
+zen-folder:not([collapsed]) > .tab-group-label-container:hover::before {
+  background-color: color-mix(in srgb, var(--hf-resolved-color) var(--hf-bg-opacity), transparent) !important;
 }
 
 /* A collapsed folder that contains the currently active tab stays
@@ -126,8 +127,19 @@ zen-folder[collapsed][has-active] {
     inset 0 0 0 1px color-mix(in srgb, var(--hf-resolved-color) 22%, transparent) !important;
 }
 
-zen-folder[collapsed][has-active] > .tab-group-label-container .tab-group-label {
-  color: var(--toolbar-color) !important;
+/* Note: the label text intentionally does NOT switch to a different
+   color in any of the states above (open, hovered, collapsed+active) —
+   it stays the same light-dark-adjusted accent color set on the base
+   rule further up, so the folder name never looks like it's "turning
+   black" once the panel fills in. */
+
+/* A gentle spring/bounce easing on whatever Zen already animates when a
+   folder opens or closes (its own native transition), instead of the
+   default linear/ease timing — just the curve, not a new transition, so
+   it stays subtle and doesn't fight Zen's own animation duration. */
+zen-folder,
+zen-folder > .tab-group-container {
+  transition-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1) !important;
 }
 
 /* --------------------------------------------------------------------
