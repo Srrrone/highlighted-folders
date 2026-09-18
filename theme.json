@@ -1,7 +1,7 @@
 {
-  "name": "My Custom Theme",
-  "description": "Custom CSS tweaks for Zen Browser",
+  "name": "Highlighted Folders",
+  "description": "Folder highlighter for Zen Browser",
   "author": "Srrrone",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "style": "userChrome.css"
 }
