@@ -1,0 +1,89 @@
+/* ==========================================================================
+   Highlighted Folders — Dia-style folder grouping for Zen Browser
+   --------------------------------------------------------------------------
+   Rewritten against Zen's actual source (src/zen/folders/zen-folders.css,
+   ZenFolder.mjs) instead of guessed class names. Zen folders are light DOM
+   (not shadow DOM), so plain CSS selectors work fine once they're correct.
+
+   IMPORTANT CONTEXT
+   Zen has no per-folder custom color property — folder icon color is
+   derived globally from your one theme accent color, and Zen explicitly
+   disables Firefox's native per-tab-group color for folders. So there is
+   no CSS "hook" to read an individual folder's own color the way Dia does.
+   This file instead cycles a fixed 6-color palette by folder position,
+   which gives the same "each folder looks different" effect without
+   needing JavaScript. A true per-folder-identity color (so a folder keeps
+   the same color across restarts / reordering) requires a script — that's
+   what the zen-crowd mod does with a MutationObserver-driven hash.
+
+   REAL ZEN FOLDER DOM (for future reference / debugging):
+     zen-folder
+     ├── .tab-group-label-container   (clickable header row)
+     │     ├── .tab-group-folder-icon (icon)
+     │     └── .tab-group-label       (name text)
+     └── .tab-group-container         (holds child tabs)
+   ========================================================================== */
+
+:root {
+  --hf-color-1: #7c9eff;
+  --hf-color-2: #ff9f7c;
+  --hf-color-3: #7cffb3;
+  --hf-color-4: #d67cff;
+  --hf-color-5: #ffe27c;
+  --hf-color-6: #7cf0ff;
+
+  --hf-bg-opacity: 16%;
+  --hf-bg-opacity-hover: 26%;
+  --hf-radius: 8px;
+}
+
+/* Assign a palette color to each folder based on its position among
+   sibling folders. Repeats every 6 folders. */
+zen-folder:nth-of-type(6n+1) { --hf-color: var(--hf-color-1); }
+zen-folder:nth-of-type(6n+2) { --hf-color: var(--hf-color-2); }
+zen-folder:nth-of-type(6n+3) { --hf-color: var(--hf-color-3); }
+zen-folder:nth-of-type(6n+4) { --hf-color: var(--hf-color-4); }
+zen-folder:nth-of-type(6n+5) { --hf-color: var(--hf-color-5); }
+zen-folder:nth-of-type(6n)   { --hf-color: var(--hf-color-6); }
+
+/* --------------------------------------------------------------------
+   Folder header row (the bar showing the folder name)
+   -------------------------------------------------------------------- */
+zen-folder > .tab-group-label-container {
+  border-radius: var(--hf-radius) !important;
+  background-color: color-mix(in srgb, var(--hf-color, var(--zen-primary-color)) var(--hf-bg-opacity), transparent) !important;
+  transition: background-color 120ms ease !important;
+}
+
+zen-folder > .tab-group-label-container:hover::before {
+  background-color: color-mix(in srgb, var(--hf-color, var(--zen-primary-color)) var(--hf-bg-opacity-hover), transparent) !important;
+}
+
+zen-folder > .tab-group-label-container .tab-group-label {
+  font-weight: 600 !important;
+}
+
+/* Recolor the folder icon itself to match this folder's assigned color.
+   These are the exact custom properties Zen's own icon SVG reads from
+   (see ZenFolder.mjs / zen-folders.css) — normally they only vary with
+   your global theme accent, this re-scopes them per folder instead. */
+zen-folder {
+  --zen-folder-behind-bgcolor: color-mix(in srgb, var(--hf-color, var(--zen-primary-color)) 60%, gray) !important;
+  --zen-folder-front-bgcolor: color-mix(in srgb, var(--hf-color, var(--zen-primary-color)), white 70%) !important;
+  --zen-folder-stroke: color-mix(in srgb, var(--hf-color, var(--zen-primary-color)) 50%, black) !important;
+}
+
+/* --------------------------------------------------------------------
+   Child tabs inside an open folder — indent + connecting rail
+   -------------------------------------------------------------------- */
+zen-folder > .tab-group-container {
+  border-inline-start: 2px solid color-mix(in srgb, var(--hf-color, var(--zen-primary-color)) 35%, transparent) !important;
+  padding-inline-start: 6px !important;
+}
+
+/* --------------------------------------------------------------------
+   Spacing between stacked folders
+   -------------------------------------------------------------------- */
+zen-folder {
+  margin-block-end: 4px !important;
+}
