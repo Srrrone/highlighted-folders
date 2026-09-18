@@ -3,7 +3,7 @@
   "name": "Highlighted Folders",
   "description": "Colored folder grouping for Zen Browser, with an inline swatch-row color picker in the folder's right-click menu.",
   "author": "Srrrone",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "style": {
     "chrome": "userChrome.css"
   },
