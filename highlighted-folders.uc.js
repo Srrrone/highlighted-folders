@@ -2,7 +2,7 @@
 // @name           Highlighted Folders
 // @description    Colors each Zen folder, with a real "Change Color…" entry
 //                  added to the folder's own right-click menu.
-// @version        2.7.0
+// @version        2.8.0
 // ==/UserScript==
 
 (() => {
@@ -509,11 +509,34 @@
     });
   }
 
+  // Direct click-based bounce trigger — catches the actual click that
+  // opens/closes a folder, rather than relying only on observing the
+  // [collapsed] attribute change (which didn't reliably fire the
+  // animation on its own). Runs alongside that observer, not instead of
+  // it, as a second, more direct path to the same effect.
+  function initClickBounce() {
+    document.addEventListener(
+      'click',
+      (event) => {
+        const label = event.target?.closest?.('.tab-group-label-container');
+        if (!label) return;
+        const folder = label.parentElement;
+        if (folder?.tagName !== 'ZEN-FOLDER') return;
+        // Wait a frame so [collapsed] has already toggled by the time
+        // anything else reacts to it; doesn't actually matter for the
+        // bounce itself, which just restarts a fixed animation.
+        requestAnimationFrame(() => triggerBounce(folder));
+      },
+      true
+    );
+  }
+
   function init() {
     applyFolderColors();
     observeSidebar();
     observePrefs();
     initContextMenu();
+    initClickBounce();
   }
 
   if (document.readyState === 'complete') {
