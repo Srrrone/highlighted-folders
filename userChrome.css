@@ -71,28 +71,25 @@ zen-folder > .tab-group-label-container .tab-group-label {
   ) !important;
 }
 
-/* The header's own hover highlight (Zen's ::before layer) gets our
-   radius too, at all times — not just on :hover — so its shape always
-   matches the outer panel exactly instead of using Zen's native, more
-   rounded --border-radius-medium (14px vs our 8px tab-matched radius).
-   It's also stretched flush to the header's own edges instead of Zen's
-   native 2px inset, so it lines up exactly with the outer panel fill
-   below instead of sitting as a smaller, mismatched box on top of it. */
+/* The header's own hover highlight (Zen's ::before layer) is fully
+   neutralized — background always transparent. All filling now happens
+   on the outer zen-folder element itself, in every state (hover while
+   collapsed, open, collapsed+active). That means hover and open always
+   share the exact same box — same padding, same edges — instead of two
+   differently-sized layers that can leave a visible seam or gap between
+   them. */
 zen-folder > .tab-group-label-container::before {
-  border-radius: var(--hf-radius) !important;
-  top: 0 !important;
-  left: 0 !important;
-  right: 0 !important;
-  bottom: 0 !important;
-  width: 100% !important;
-  height: 100% !important;
+  background-color: transparent !important;
 }
 
-/* Open: same solid panel fill as before, covering the header AND every
-   child tab row, with the label switching to normal text color for
-   contrast against the fill. A soft shadow plus a faint inner ring
-   (matching the reference's depth) gives it a slightly raised, clean
-   card look instead of a flat color patch. */
+zen-folder {
+  transition: background-color 160ms ease, box-shadow 160ms ease !important;
+}
+
+/* Open: solid panel fill covering the header AND every child tab row,
+   as one box. A soft shadow plus a faint inner ring (matching the
+   reference's depth) gives it a slightly raised, clean card look
+   instead of a flat color patch. */
 zen-folder:not([collapsed]) {
   background-color: color-mix(in srgb, var(--hf-resolved-color) var(--hf-bg-opacity), transparent) !important;
   box-shadow:
@@ -100,20 +97,23 @@ zen-folder:not([collapsed]) {
     inset 0 0 0 1px color-mix(in srgb, var(--hf-resolved-color) 22%, transparent) !important;
 }
 
-/* Hover: fills the header the same way, whether the folder is open or
-   still collapsed — painted on Zen's own ::before layer so it's
-   guaranteed visible (see the note above about that paint order). */
-zen-folder > .tab-group-label-container:hover::before {
-  background-color: color-mix(in srgb, var(--hf-resolved-color) var(--hf-bg-opacity-hover), transparent) !important;
+/* Hovering anywhere within an already-open folder stays at the SAME
+   opacity as the base fill — not a brighter one — so the whole block
+   keeps reading as one continuous highlight rather than the header (or
+   wherever the mouse is) popping brighter than the rest. */
+zen-folder:not([collapsed]):hover {
+  background-color: color-mix(in srgb, var(--hf-resolved-color) var(--hf-bg-opacity), transparent) !important;
 }
 
-/* But when the folder is already open, don't let hovering the header
-   layer a second, brighter fill on top of the panel's own fill —
-   without this, the header reads visibly brighter than the rest of the
-   block on hover instead of the whole thing reading as one continuous
-   highlight. Keeping it at the same opacity as the panel fixes that. */
-zen-folder:not([collapsed]) > .tab-group-label-container:hover::before {
-  background-color: color-mix(in srgb, var(--hf-resolved-color) var(--hf-bg-opacity), transparent) !important;
+/* Collapsed folders fill on hover, using the exact same box the open
+   state uses — so going from "hovering, collapsed" to "open" is the
+   same element smoothly changing opacity, not a swap between two
+   different-shaped layers. */
+zen-folder[collapsed]:hover {
+  background-color: color-mix(in srgb, var(--hf-resolved-color) var(--hf-bg-opacity-hover), transparent) !important;
+  box-shadow:
+    0 1px 3px color-mix(in srgb, black 18%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--hf-resolved-color) 22%, transparent) !important;
 }
 
 /* A collapsed folder that contains the currently active tab stays
@@ -133,13 +133,22 @@ zen-folder[collapsed][has-active] {
    rule further up, so the folder name never looks like it's "turning
    black" once the panel fills in. */
 
-/* A gentle spring/bounce easing on whatever Zen already animates when a
-   folder opens or closes (its own native transition), instead of the
-   default linear/ease timing — just the curve, not a new transition, so
-   it stays subtle and doesn't fight Zen's own animation duration. */
-zen-folder,
-zen-folder > .tab-group-container {
-  transition-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+/* A small, self-contained bounce when a folder opens or closes —
+   triggered by highlighted-folders.uc.js toggling this class whenever a
+   folder's [collapsed] attribute changes, rather than trying to hook
+   into Zen's own native open/close transition (which didn't turn out to
+   be reachable via transition-timing-function — this replaces that
+   earlier attempt with something that reliably actually runs). */
+@keyframes hf-folder-bounce {
+  0%   { transform: scaleY(1); }
+  45%  { transform: scaleY(1.025); }
+  75%  { transform: scaleY(0.99); }
+  100% { transform: scaleY(1); }
+}
+
+zen-folder.hf-bounce {
+  animation: hf-folder-bounce 240ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  transform-origin: top center;
 }
 
 /* --------------------------------------------------------------------
