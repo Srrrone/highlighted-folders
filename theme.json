@@ -1,7 +1,0 @@
-{
-  "name": "Highlighted Folders",
-  "description": "Folder highlighter for Zen Browser",
-  "author": "Srrrone",
-  "version": "0.1.0",
-  "style": "userChrome.css"
-}
