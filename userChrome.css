@@ -1,0 +1,140 @@
+/* ==========================================================================
+   Highlighted Folders — colored folder grouping for Zen Browser
+   --------------------------------------------------------------------------
+   v3 — background now covers the WHOLE folder block (header + every child
+   tab row) as one solid rounded panel, instead of just a header chip
+   with a border on the children.
+   ========================================================================== */
+
+:root {
+  --hf-color-1: #0a84ff;
+  --hf-color-2: #ff9f0a;
+  --hf-color-3: #32d74b;
+  --hf-color-4: #bf5af2;
+  --hf-color-5: #ffd60a;
+  --hf-color-6: #ff375f;
+
+  --hf-bg-opacity: 16%;
+  --hf-bg-opacity-hover: 26%;
+  /* Matches the radius Zen's own sidebar TABS use for their hover/selected
+     highlight (--tab-border-radius, 8px) rather than the larger, more
+     "pill" --border-radius-medium (14px) used elsewhere in the chrome —
+     see #navigator-toolbox in vertical-tabs.css. This keeps the folder
+     panel's corners visually the same tightness as a regular tab row.
+     The script only overrides this if you set a custom radius in the mod
+     settings. */
+  --hf-radius: var(--tab-border-radius, 8px);
+}
+
+/* Fallback-only color assignment, used only if highlighted-folders.uc.js
+   isn't actually running (e.g. Sine's "unsafe JS" toggle is off). Once the
+   script runs, it sets --hf-color inline on each zen-folder, which always
+   wins over this since inline style beats a stylesheet rule. */
+zen-folder:nth-of-type(6n+1) { --hf-color-fallback: var(--hf-color-1); }
+zen-folder:nth-of-type(6n+2) { --hf-color-fallback: var(--hf-color-2); }
+zen-folder:nth-of-type(6n+3) { --hf-color-fallback: var(--hf-color-3); }
+zen-folder:nth-of-type(6n+4) { --hf-color-fallback: var(--hf-color-4); }
+zen-folder:nth-of-type(6n+5) { --hf-color-fallback: var(--hf-color-5); }
+zen-folder:nth-of-type(6n)   { --hf-color-fallback: var(--hf-color-6); }
+
+/* --------------------------------------------------------------------
+   Three visual states per folder, matching a "starter" reference look:
+   - Closed, not hovered: only the folder name is tinted, no fill.
+   - Hovered (open or closed): the whole header/panel fills with color.
+   - Open (expanded, showing its tabs): filled the same as hover, so the
+     panel stays visibly colored the whole time it's expanded.
+   -------------------------------------------------------------------- */
+zen-folder {
+  --hf-resolved-color: var(--hf-color, var(--hf-color-fallback, var(--zen-primary-color)));
+
+  border-radius: var(--hf-radius) !important;
+  padding-block: 2px !important;
+  margin-block-end: 4px !important;
+
+  /* Recolor the folder icon itself to match (same custom properties
+     Zen's own icon SVG reads from — see ZenFolder.mjs). Always on,
+     regardless of open/closed/hover state. */
+  --zen-folder-behind-bgcolor: color-mix(in srgb, var(--hf-resolved-color) 60%, gray) !important;
+  --zen-folder-front-bgcolor: color-mix(in srgb, var(--hf-resolved-color), white 70%) !important;
+  --zen-folder-stroke: color-mix(in srgb, var(--hf-resolved-color) 50%, black) !important;
+}
+
+/* Base state: no fill, just a colored, bold folder name. */
+zen-folder > .tab-group-label-container .tab-group-label {
+  font-weight: 600 !important;
+  color: var(--hf-resolved-color) !important;
+}
+
+/* Open: same solid panel fill as before, covering the header AND every
+   child tab row, with the label switching to normal text color for
+   contrast against the fill. */
+zen-folder:not([collapsed]) {
+  background-color: color-mix(in srgb, var(--hf-resolved-color) var(--hf-bg-opacity), transparent) !important;
+}
+
+zen-folder:not([collapsed]) > .tab-group-label-container .tab-group-label {
+  color: var(--toolbar-color) !important;
+}
+
+/* Hover: fills the header the same way, whether the folder is open or
+   still collapsed — painted on Zen's own ::before layer so it's
+   guaranteed visible (see the note above about that paint order). */
+zen-folder > .tab-group-label-container:hover::before {
+  background-color: color-mix(in srgb, var(--hf-resolved-color) var(--hf-bg-opacity-hover), transparent) !important;
+}
+
+zen-folder > .tab-group-label-container:hover .tab-group-label {
+  color: var(--toolbar-color) !important;
+}
+
+/* If child tab rows look like they spill past the rounded corners on
+   your build, uncomment this to clip them to the panel shape: */
+/* zen-folder { overflow: clip !important; } */
+
+/* --------------------------------------------------------------------
+   Color submenu — right-click a folder → "Highlight Color" → a small
+   grid of preset swatches. Injected by highlighted-folders.uc.js.
+   Swatches are real <menuitem> elements with a colored circular icon
+   (a plain hbox row doesn't reliably render inside a native menupopup,
+   so this uses the icon-grid approach instead).
+   -------------------------------------------------------------------- */
+#context-hf-color-swatches {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  width: 136px !important;
+  padding: 6px !important;
+  gap: 2px !important;
+}
+
+.hf-swatch-item {
+  -moz-appearance: none !important;
+  min-width: 0 !important;
+  width: 30px !important;
+  height: 30px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border-radius: 50% !important;
+}
+
+.hf-swatch-item > .menu-iconic-text {
+  display: none !important;
+}
+
+.hf-swatch-item > .menu-iconic-icon {
+  width: 18px !important;
+  height: 18px !important;
+  margin: 0 !important;
+}
+
+.hf-swatch-item:hover {
+  background-color: color-mix(in srgb, currentColor 14%, transparent) !important;
+  border-radius: 50% !important;
+}
+
+/* Forces the custom-color swatch onto its own row, clearly separated
+   from the 8 regular presets above it. */
+.hf-swatch-divider {
+  flex-basis: 100% !important;
+  width: 100% !important;
+  margin: 4px 2px !important;
+}
