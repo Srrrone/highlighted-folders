@@ -2,7 +2,7 @@
 // @name           Highlighted Folders
 // @description    Colors each Zen folder, with a real "Change Color…" entry
 //                  added to the folder's own right-click menu.
-// @version        2.5.0
+// @version        2.7.0
 // ==/UserScript==
 
 (() => {
@@ -35,26 +35,74 @@
     '#ffffff', '#32d74b', '#0a84ff', '#bf5af2',
     '#ffd60a', '#ff6482', '#ef2b23', '#ff6a00'
   ];
+  const SWATCH_NAMES = ['White', 'Green', 'Blue', 'Purple', 'Yellow', 'Pink', 'Red', 'Orange'];
 
   // Menuitem "image" attributes need a real image resource — inline SVG
-  // data URIs work fine in chrome-privileged documents and let us draw a
-  // plain colored circle per swatch without shipping any asset files.
-  // Each swatch gets a dark outer ring + light inner ring so it reads
-  // clearly as a distinct, clickable dot against either a light or dark
-  // menu background.
-  function swatchIconDataUri(hexColor) {
+  // Menuitem "image" attributes need a real image resource. PNG (via an
+  // offscreen <canvas>) is used here instead of an inline SVG data URI —
+  // native menu-icon painting on Windows doesn't reliably support SVG
+  // data URIs the way macOS/Linux do, so rasterizing to PNG is the
+  // version that's actually guaranteed to render on every platform.
+  // Falls back to the SVG data URI only if canvas itself is unavailable.
+  function drawSwatchCanvas(hexColor, neutral) {
+    const canvas = document.createElementNS('http://www.w3.org/1999/xhtml', 'canvas');
+    canvas.width = 16;
+    canvas.height = 16;
+    const ctx = canvas.getContext('2d');
+
+    ctx.clearRect(0, 0, 16, 16);
+
+    // Dark outer ring, for definition against a light menu background.
+    ctx.beginPath();
+    ctx.arc(8, 8, 7.5, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // Fill.
+    ctx.beginPath();
+    ctx.arc(8, 8, 6.75, 0, Math.PI * 2);
+    ctx.fillStyle = neutral ? '#5a5a5e' : hexColor;
+    ctx.fill();
+
+    // Light inner ring, for definition against a dark menu background.
+    ctx.strokeStyle = 'rgba(255,255,255,0.65)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    if (neutral) {
+      ctx.beginPath();
+      ctx.arc(8, 8, 2.5, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,255,255,0.55)';
+      ctx.fill();
+    }
+
+    return canvas.toDataURL('image/png');
+  }
+
+  function svgFallbackDataUri(hexColor, neutral) {
+    const centerDot = neutral ? `<circle cx="8" cy="8" r="2.5" fill="rgba(255,255,255,0.55)"/>` : '';
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16">` +
       `<circle cx="8" cy="8" r="7.5" fill="none" stroke="rgba(0,0,0,0.4)" stroke-width="1"/>` +
-      `<circle cx="8" cy="8" r="6.75" fill="${hexColor}" stroke="rgba(255,255,255,0.65)" stroke-width="1"/></svg>`;
+      `<circle cx="8" cy="8" r="6.75" fill="${neutral ? '#5a5a5e' : hexColor}" stroke="rgba(255,255,255,0.65)" stroke-width="1"/>` +
+      centerDot + `</svg>`;
     return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
   }
 
+  function swatchIconDataUri(hexColor) {
+    try {
+      return drawSwatchCanvas(hexColor, false);
+    } catch {
+      return svgFallbackDataUri(hexColor, false);
+    }
+  }
+
   function neutralIconDataUri() {
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16">` +
-      `<circle cx="8" cy="8" r="7.5" fill="none" stroke="rgba(0,0,0,0.4)" stroke-width="1"/>` +
-      `<circle cx="8" cy="8" r="6.75" fill="#5a5a5e" stroke="rgba(255,255,255,0.65)" stroke-width="1"/>` +
-      `<circle cx="8" cy="8" r="2.5" fill="rgba(255,255,255,0.55)"/></svg>`;
-    return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+    try {
+      return drawSwatchCanvas(null, true);
+    } catch {
+      return svgFallbackDataUri(null, true);
+    }
   }
 
   function getPrefs() {
@@ -221,13 +269,37 @@
 
   function observeSidebar() {
     const target = document.getElementById('tabbrowser-tabs') || document.documentElement;
-    const observer = new MutationObserver(scheduleApply);
+    const observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        if (mutation.type === 'attributes' && mutation.attributeName === 'collapsed') {
+          triggerBounce(mutation.target);
+        }
+      }
+      scheduleApply();
+    });
     observer.observe(target, {
       childList: true,
       subtree: true,
       attributes: true,
-      attributeFilter: ['label', 'id']
+      attributeFilter: ['label', 'id', 'collapsed']
     });
+  }
+
+  // Briefly adds the CSS bounce animation class whenever a folder opens
+  // or closes, then removes it once the animation finishes (falls back
+  // to a timeout if 'animationend' never fires for some reason, so the
+  // class can't get stuck on).
+  function triggerBounce(folder) {
+    if (!folder || folder.tagName !== 'ZEN-FOLDER') return;
+    folder.classList.remove('hf-bounce');
+    // Force reflow so re-adding the class restarts the animation even
+    // if it's still mid-way from a very quick prior toggle.
+    void folder.offsetWidth;
+    folder.classList.add('hf-bounce');
+
+    const clear = () => folder.classList.remove('hf-bounce');
+    folder.addEventListener('animationend', clear, { once: true });
+    setTimeout(clear, 400);
   }
 
   function observePrefs() {
@@ -312,18 +384,18 @@
     popup.id = SWATCH_POPUP_ID;
     menu.appendChild(popup);
 
-    for (const color of SWATCH_COLORS) {
+    SWATCH_COLORS.forEach((color, index) => {
       const item = document.createXULElement('menuitem');
       item.classList.add('hf-swatch-item');
+      item.setAttribute('label', SWATCH_NAMES[index] || color);
       item.setAttribute('tooltiptext', color);
       item.setAttribute('image', swatchIconDataUri(color));
       item.setAttribute('data-color', color);
       popup.appendChild(item);
-    }
+    });
 
-    // Forces a line break in the flex-wrapped grid below, so the custom
-    // swatch always sits on its own row and can't be mistaken for one of
-    // the regular presets right next to it.
+    // A visible divider line, separating the custom-color option below
+    // from the fixed presets above it.
     const divider = document.createXULElement('menuseparator');
     divider.classList.add('hf-swatch-divider');
     popup.appendChild(divider);
@@ -332,6 +404,7 @@
     customItem.id = CUSTOM_SWATCH_ID;
     customItem.classList.add('hf-swatch-item', 'hf-swatch-custom-item');
     customItem.setAttribute('data-custom', 'true');
+    customItem.setAttribute('label', 'Custom Color…');
     customItem.setAttribute('tooltiptext', 'Custom Color…');
     customItem.setAttribute('image', neutralIconDataUri());
     popup.appendChild(customItem);
