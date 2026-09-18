@@ -97,12 +97,15 @@ zen-folder:not([collapsed]) {
     inset 0 0 0 1px color-mix(in srgb, var(--hf-resolved-color) 22%, transparent) !important;
 }
 
-/* Hovering anywhere within an already-open folder stays at the SAME
-   opacity as the base fill — not a brighter one — so the whole block
-   keeps reading as one continuous highlight rather than the header (or
-   wherever the mouse is) popping brighter than the rest. */
+/* Hovering anywhere within an already-open folder brightens the WHOLE
+   box uniformly — header and every child row together, all at once,
+   since this is one single rule on the outer element rather than a
+   separate header-only layer. Not hovering leaves the base (dimmer)
+   tint from the rule above still visible, so the folder always reads
+   as "group colored," with a brighter highlight layered on top only
+   while you're actually hovering it. */
 zen-folder:not([collapsed]):hover {
-  background-color: color-mix(in srgb, var(--hf-resolved-color) var(--hf-bg-opacity), transparent) !important;
+  background-color: color-mix(in srgb, var(--hf-resolved-color) var(--hf-bg-opacity-hover), transparent) !important;
 }
 
 /* Collapsed folders fill on hover, using the exact same box the open
@@ -147,8 +150,8 @@ zen-folder[collapsed][has-active] {
 }
 
 zen-folder.hf-bounce {
-  animation: hf-folder-bounce 240ms cubic-bezier(0.34, 1.56, 0.64, 1);
-  transform-origin: top center;
+  animation: hf-folder-bounce 240ms cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+  transform-origin: top center !important;
 }
 
 /* --------------------------------------------------------------------
