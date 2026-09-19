@@ -2,7 +2,7 @@
 // @name           Highlighted Folders
 // @description    Colors each Zen folder, with a real "Change Color…" entry
 //                  added to the folder's own right-click menu.
-// @version        3.0.0
+// @version        3.0.1
 // ==/UserScript==
 
 (() => {
@@ -554,13 +554,15 @@
   function moveTopRowElements() {
     if (!isCompactMode()) return;
 
-    const titlebar = document.getElementById('titlebar');
+    // Deliberately NOT moving #zen-sidebar-top-buttons into #titlebar
+    // anymore — on this setup, #titlebar apparently holds more than
+    // just the window buttons (the address bar content ended up tangled
+    // into the sidebar's top row when this was tried), so that part of
+    // the technique is scaled back. This only pulls the actual window
+    // buttons themselves into the sidebar's own top row, which stays in
+    // its normal place.
     const topButtons = document.getElementById('zen-sidebar-top-buttons');
-    if (!titlebar || !topButtons) return;
-
-    if (topButtons.parentElement !== titlebar) {
-      titlebar.prepend(topButtons);
-    }
+    if (!topButtons) return;
 
     const windowButtons = window.gZenVerticalTabsManager?.actualWindowButtons;
     if (windowButtons && windowButtons.parentElement !== topButtons) {
