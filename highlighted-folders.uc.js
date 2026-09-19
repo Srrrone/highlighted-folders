@@ -2,7 +2,7 @@
 // @name           Highlighted Folders
 // @description    Colors each Zen folder, with a real "Change Color…" entry
 //                  added to the folder's own right-click menu.
-// @version        2.9.0
+// @version        3.0.0
 // ==/UserScript==
 
 (() => {
@@ -531,20 +531,60 @@
     );
   }
 
-  // Moves the native Spaces/workspace switcher (<zen-workspace-icons
-  // id="zen-workspaces-button">) from its default home in the bottom
-  // bar (#zen-sidebar-foot-buttons) up into the top bar
-  // (#zen-sidebar-top-buttons, where the window control buttons live),
-  // so Spaces sit alongside them instead of at the bottom. This is a
-  // real DOM move, not just a CSS reposition — the two bars are
-  // separate toolbars, not one shared flex container, so CSS order
-  // alone can't do this.
-  function moveSpacesSwitcherToTop() {
+  // Moves the actual window control buttons (traffic lights on macOS)
+  // and the native Spaces/workspace switcher (<zen-workspace-icons
+  // id="zen-workspaces-button">) into #zen-sidebar-top-buttons, so both
+  // sit together at the top of the sidebar instead of the window
+  // buttons staying in the native title bar and Spaces sitting in the
+  // bottom bar.
+  //
+  // The window buttons specifically are NOT reachable through a static
+  // CSS selector — there's no plain .titlebar-buttonbox-container
+  // sitting there waiting to be styled. Zen exposes them through its
+  // own JS API instead: window.gZenVerticalTabsManager.actualWindowButtons.
+  // This whole approach — using that API, only acting in compact mode,
+  // and re-running on nav-bar mutations since Zen can reset things — is
+  // adapted from how z1n-k/zia (https://github.com/z1n-k/zia) does this
+  // exact relocation; a plain pref toggle alone was never going to do
+  // it, which is why that didn't work on its own.
+  function isCompactMode() {
+    return document.documentElement.getAttribute('zen-compact-mode') === 'true';
+  }
+
+  function moveTopRowElements() {
+    if (!isCompactMode()) return;
+
+    const titlebar = document.getElementById('titlebar');
+    const topButtons = document.getElementById('zen-sidebar-top-buttons');
+    if (!titlebar || !topButtons) return;
+
+    if (topButtons.parentElement !== titlebar) {
+      titlebar.prepend(topButtons);
+    }
+
+    const windowButtons = window.gZenVerticalTabsManager?.actualWindowButtons;
+    if (windowButtons && windowButtons.parentElement !== topButtons) {
+      topButtons.prepend(windowButtons);
+    }
+
     const spacesButton = document.getElementById('zen-workspaces-button');
-    const topBar = document.getElementById('zen-sidebar-top-buttons');
-    if (!spacesButton || !topBar) return;
-    if (spacesButton.parentElement === topBar) return; // already moved
-    topBar.appendChild(spacesButton);
+    if (spacesButton && spacesButton.parentElement !== topButtons) {
+      topButtons.appendChild(spacesButton);
+    }
+  }
+
+  function observeTopRow() {
+    const navBar = document.getElementById('nav-bar');
+    if (navBar) {
+      new MutationObserver(() => moveTopRowElements()).observe(navBar, { childList: true });
+    }
+
+    // Also re-run whenever compact mode itself gets toggled, since that
+    // attribute lives on the root element, not inside navigator-toolbox.
+    new MutationObserver(() => moveTopRowElements()).observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['zen-compact-mode']
+    });
   }
 
   function init() {
@@ -553,7 +593,8 @@
     observePrefs();
     initContextMenu();
     initClickBounce();
-    moveSpacesSwitcherToTop();
+    moveTopRowElements();
+    observeTopRow();
   }
 
   if (document.readyState === 'complete') {
