@@ -215,9 +215,12 @@ zen-folder.hf-bounce {
   --dia-top-row-space: 6.5px;
 }
 
-/* Pinned tabs ("Essentials") as a rounded tile grid. */
+/* Pinned tabs ("Essentials") as a rounded tile grid — a fixed 4-column
+   grid, matching Dia's own row count exactly, instead of auto-fill
+   (which wraps to an inconsistent number per row depending on
+   available width — the uneven "5 then 1" layout you saw). */
 :root[zen-sidebar-expanded="true"] .zen-essentials-container {
-  grid-template-columns: repeat(auto-fill, minmax(var(--dia-essential-min-width), 1fr)) !important;
+  grid-template-columns: repeat(4, 1fr) !important;
   gap: var(--dia-essential-gap) !important;
   padding-bottom: var(--dia-essential-bottom-space) !important;
 }
