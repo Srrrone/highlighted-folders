@@ -1,332 +1,588 @@
-/* ==========================================================================
-   Highlighted Folders — colored folder grouping for Zen Browser
-   --------------------------------------------------------------------------
-   v3 — background covers the WHOLE folder block (header + every child
-   tab row) as one solid rounded panel, instead of just a header chip
-   with a border on the children.
-   ========================================================================== */
+// ==UserScript==
+// @name           Highlighted Folders
+// @description    Colors each Zen folder, with a real "Change Color…" entry
+//                  added to the folder's own right-click menu.
+// @version        3.1.0
+// ==/UserScript==
 
-:root {
-  --hf-color-1: #0a84ff;
-  --hf-color-2: #ff6a00;
-  --hf-color-3: #32d74b;
-  --hf-color-4: #bf5af2;
-  --hf-color-5: #ffd60a;
-  --hf-color-6: #ff6482;
+(() => {
+  'use strict';
 
-  --hf-bg-opacity: 16%;
-  --hf-bg-opacity-hover: 26%;
-  /* Matches the radius Zen's own sidebar TABS use for their hover/selected
-     highlight (--tab-border-radius, 8px) rather than the larger, more
-     "pill" --border-radius-medium (14px) used elsewhere in the chrome —
-     see #navigator-toolbox in vertical-tabs.css. This keeps the folder
-     panel's corners visually the same tightness as a regular tab row.
-     The script only overrides this if you set a custom radius in the mod
-     settings. */
-  --hf-radius: var(--tab-border-radius, 8px);
-}
+  const PREF_BRANCH = 'srrrone.highlighted-folders.';
+  const PREF_PALETTE = `${PREF_BRANCH}palette`;
+  const PREF_OPACITY = `${PREF_BRANCH}opacity`;
+  const PREF_OPACITY_HOVER = `${PREF_BRANCH}opacity-hover`;
+  const PREF_RADIUS = `${PREF_BRANCH}radius`;
+  const PREF_COLOR_TOP_LEVEL = `${PREF_BRANCH}color-top-level`;
+  // Per-folder manual color overrides, set via the right-click menu.
+  // Stored as JSON: { "<folder-id>": "#rrggbb", ... }
+  const PREF_OVERRIDES = `${PREF_BRANCH}overrides`;
 
-/* Fallback-only color assignment, used only if highlighted-folders.uc.js
-   isn't actually running (e.g. Sine's "unsafe JS" toggle is off). Once the
-   script runs, it sets --hf-color inline on each zen-folder, which always
-   wins over this since inline style beats a stylesheet rule. */
-zen-folder:nth-of-type(6n+1) { --hf-color-fallback: var(--hf-color-1); }
-zen-folder:nth-of-type(6n+2) { --hf-color-fallback: var(--hf-color-2); }
-zen-folder:nth-of-type(6n+3) { --hf-color-fallback: var(--hf-color-3); }
-zen-folder:nth-of-type(6n+4) { --hf-color-fallback: var(--hf-color-4); }
-zen-folder:nth-of-type(6n+5) { --hf-color-fallback: var(--hf-color-5); }
-zen-folder:nth-of-type(6n)   { --hf-color-fallback: var(--hf-color-6); }
+  const DEFAULT_PALETTE = ['#0a84ff', '#ff6a00', '#32d74b', '#bf5af2', '#ffd60a', '#ff6482'];
 
-/* --------------------------------------------------------------------
-   Three visual states per folder:
-   - Closed, not hovered: only the folder name is tinted, no fill.
-   - Hovered (open or closed): the whole header/panel fills brighter.
-   - Open (expanded, showing its tabs): filled at the dimmer base tint
-     always, brighter again on hover.
-   -------------------------------------------------------------------- */
-zen-folder {
-  --hf-resolved-color: var(--hf-color, var(--hf-color-fallback, var(--zen-primary-color)));
+  const CONTEXT_MENU_ID = 'zenFolderActions';
+  const ANCHOR_ITEM_ID = 'context_zenFolderChangeIcon';
+  const COLOR_MENU_ID = 'context-hf-color-menu';
+  const SWATCH_POPUP_ID = 'context-hf-color-swatches';
+  const CUSTOM_SWATCH_ID = 'context-hf-swatch-custom';
+  const RESET_COLOR_ID = 'context-hf-reset-color';
 
-  border-radius: var(--hf-radius) !important;
-  padding-block: 2px !important;
-  margin-block-end: 4px !important;
-  transition: background-color 160ms ease, box-shadow 160ms ease !important;
+  // Preset colors shown as a small icon-grid submenu, matching a vivid
+  // "primary" palette (white, green, blue, purple, yellow, pink, red,
+  // orange). The actual custom-color escape hatch is added separately,
+  // on its own row below a divider — see buildColorMenu.
+  const SWATCH_COLORS = [
+    '#ffffff', '#32d74b', '#0a84ff', '#bf5af2',
+    '#ffd60a', '#ff6482', '#ef2b23', '#ff6a00'
+  ];
+  const SWATCH_NAMES = ['White', 'Green', 'Blue', 'Purple', 'Yellow', 'Pink', 'Red', 'Orange'];
 
-  /* Recolor the folder icon itself to match (same custom properties
-     Zen's own icon SVG reads from — see ZenFolder.mjs). Always on,
-     regardless of open/closed/hover state. */
-  --zen-folder-behind-bgcolor: color-mix(in srgb, var(--hf-resolved-color) 60%, gray) !important;
-  --zen-folder-front-bgcolor: color-mix(in srgb, var(--hf-resolved-color), white 70%) !important;
-  --zen-folder-stroke: color-mix(in srgb, var(--hf-resolved-color) 50%, black) !important;
-}
+  // Menuitem "image" attributes need a real image resource — inline SVG
+  // Menuitem "image" attributes need a real image resource. PNG (via an
+  // offscreen <canvas>) is used here instead of an inline SVG data URI —
+  // native menu-icon painting on Windows doesn't reliably support SVG
+  // data URIs the way macOS/Linux do, so rasterizing to PNG is the
+  // version that's actually guaranteed to render on every platform.
+  // Falls back to the SVG data URI only if canvas itself is unavailable.
+  function drawSwatchCanvas(hexColor, neutral) {
+    const canvas = document.createElementNS('http://www.w3.org/1999/xhtml', 'canvas');
+    canvas.width = 16;
+    canvas.height = 16;
+    const ctx = canvas.getContext('2d');
 
-/* Base state: no fill, just a colored, bold folder name. The color
-   itself is darkened slightly in light mode and lightened slightly in
-   dark mode (via light-dark(), the same function Zen's own styles use)
-   so it stays readable on its own — flat and matte, no shadow/glow. */
-zen-folder > .tab-group-label-container .tab-group-label {
-  font-weight: 600 !important;
-  color: light-dark(
-    color-mix(in srgb, var(--hf-resolved-color) 70%, black),
-    color-mix(in srgb, var(--hf-resolved-color) 85%, white)
-  ) !important;
-}
+    ctx.clearRect(0, 0, 16, 16);
 
-/* The header's own hover highlight (Zen's ::before layer) is fully
-   neutralized — background always transparent. All filling happens on
-   the outer zen-folder element itself, in every state, so hover and
-   open always share the exact same box instead of two differently
-   sized layers that can leave a visible seam. */
-zen-folder > .tab-group-label-container::before {
-  background-color: transparent !important;
-}
+    // Dark outer ring, for definition against a light menu background.
+    ctx.beginPath();
+    ctx.arc(8, 8, 7.5, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
 
-/* Open: solid panel fill covering the header AND every child tab row,
-   as one box. A soft shadow plus a faint inner ring gives it a
-   slightly raised, clean card look instead of a flat color patch. */
-zen-folder:not([collapsed]) {
-  background-color: color-mix(in srgb, var(--hf-resolved-color) var(--hf-bg-opacity), transparent) !important;
-  box-shadow:
-    0 1px 3px color-mix(in srgb, black 18%, transparent),
-    inset 0 0 0 1px color-mix(in srgb, var(--hf-resolved-color) 22%, transparent) !important;
-}
+    // Fill.
+    ctx.beginPath();
+    ctx.arc(8, 8, 6.75, 0, Math.PI * 2);
+    ctx.fillStyle = neutral ? '#5a5a5e' : hexColor;
+    ctx.fill();
 
-/* Hovering anywhere within an already-open folder brightens the WHOLE
-   box uniformly — header and every child row together, all at once,
-   since this is one single rule on the outer element rather than a
-   separate header-only layer. Not hovering leaves the base (dimmer)
-   tint from the rule above still visible, so the folder always reads
-   as "group colored," with a brighter highlight layered on top only
-   while you're actually hovering it. */
-zen-folder:not([collapsed]):hover {
-  background-color: color-mix(in srgb, var(--hf-resolved-color) var(--hf-bg-opacity-hover), transparent) !important;
-}
+    // Light inner ring, for definition against a dark menu background.
+    ctx.strokeStyle = 'rgba(255,255,255,0.65)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
 
-/* Collapsed folders fill on hover, using the exact same box the open
-   state uses — so going from "hovering, collapsed" to "open" is the
-   same element smoothly changing opacity, not a swap between two
-   different-shaped layers. */
-zen-folder[collapsed]:hover {
-  background-color: color-mix(in srgb, var(--hf-resolved-color) var(--hf-bg-opacity-hover), transparent) !important;
-  box-shadow:
-    0 1px 3px color-mix(in srgb, black 18%, transparent),
-    inset 0 0 0 1px color-mix(in srgb, var(--hf-resolved-color) 22%, transparent) !important;
-}
+    if (neutral) {
+      ctx.beginPath();
+      ctx.arc(8, 8, 2.5, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,255,255,0.55)';
+      ctx.fill();
+    }
 
-/* A collapsed folder that contains the currently active tab stays
-   filled/highlighted, same as an open folder — Zen already tracks this
-   via the [has-active] attribute on collapsed folders. A collapsed
-   folder with no active tab inside stays unhighlighted as normal. */
-zen-folder[collapsed][has-active] {
-  background-color: color-mix(in srgb, var(--hf-resolved-color) var(--hf-bg-opacity), transparent) !important;
-  box-shadow:
-    0 1px 3px color-mix(in srgb, black 18%, transparent),
-    inset 0 0 0 1px color-mix(in srgb, var(--hf-resolved-color) 22%, transparent) !important;
-}
+    return canvas.toDataURL('image/png');
+  }
 
-/* [collapsed][has-active] and [collapsed]:hover tie in specificity, so
-   whichever comes later in the file wins regardless of whether you're
-   actually hovering — which silently blocked hover brightening on a
-   collapsed folder that already contained the active tab. This rule has
-   one more selector than either, so it always wins outright when both
-   are true, guaranteeing hover still visibly brightens things further. */
-zen-folder[collapsed][has-active]:hover {
-  background-color: color-mix(in srgb, var(--hf-resolved-color) var(--hf-bg-opacity-hover), transparent) !important;
-}
+  function svgFallbackDataUri(hexColor, neutral) {
+    const centerDot = neutral ? `<circle cx="8" cy="8" r="2.5" fill="rgba(255,255,255,0.55)"/>` : '';
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16">` +
+      `<circle cx="8" cy="8" r="7.5" fill="none" stroke="rgba(0,0,0,0.4)" stroke-width="1"/>` +
+      `<circle cx="8" cy="8" r="6.75" fill="${neutral ? '#5a5a5e' : hexColor}" stroke="rgba(255,255,255,0.65)" stroke-width="1"/>` +
+      centerDot + `</svg>`;
+    return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+  }
 
-/* Note: the label text intentionally does NOT switch to a different
-   color in any of the states above (open, hovered, collapsed+active) —
-   it stays the same light-dark-adjusted accent color set on the base
-   rule further up, so the folder name never looks like it's "turning
-   black" once the panel fills in. */
+  function swatchIconDataUri(hexColor) {
+    try {
+      return drawSwatchCanvas(hexColor, false);
+    } catch {
+      return svgFallbackDataUri(hexColor, false);
+    }
+  }
 
-/* A small, self-contained bounce when a folder opens or closes —
-   triggered by highlighted-folders.uc.js toggling this class whenever a
-   folder's [collapsed] attribute changes. */
-@keyframes hf-folder-bounce {
-  0%   { transform: scaleY(1); }
-  45%  { transform: scaleY(1.025); }
-  75%  { transform: scaleY(0.99); }
-  100% { transform: scaleY(1); }
-}
+  function neutralIconDataUri() {
+    try {
+      return drawSwatchCanvas(null, true);
+    } catch {
+      return svgFallbackDataUri(null, true);
+    }
+  }
 
-zen-folder.hf-bounce {
-  animation: hf-folder-bounce 240ms cubic-bezier(0.34, 1.56, 0.64, 1) !important;
-  transform-origin: top center !important;
-}
+  function getPrefs() {
+    try {
+      return Services.prefs;
+    } catch {
+      return null;
+    }
+  }
 
-/* --------------------------------------------------------------------
-   Color submenu — right-click a folder → "Highlight Color" → a list of
-   preset swatches. Swatches are real <menuitem> elements with a colored
-   circular PNG icon, rendered as a plain vertical list — native
-   menupopup layout, no flex/grid CSS override (that didn't render
-   consistently across platforms).
-   -------------------------------------------------------------------- */
-#context-hf-color-swatches {
-  width: 160px !important;
-  max-width: 160px !important;
-}
+  function readPalette() {
+    const prefs = getPrefs();
+    let raw = '';
+    try {
+      raw = prefs?.getStringPref(PREF_PALETTE, '') || '';
+    } catch {}
+    const parsed = raw
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+    return parsed.length ? parsed : DEFAULT_PALETTE;
+  }
 
-.hf-swatch-item {
-  -moz-appearance: none !important;
-  padding: 4px 8px !important;
-}
+  function readStringPref(name, fallback) {
+    const prefs = getPrefs();
+    try {
+      const value = prefs?.getStringPref(name, '');
+      return value || fallback;
+    } catch {
+      return fallback;
+    }
+  }
 
-.hf-swatch-item > .menu-iconic-icon {
-  width: 18px !important;
-  height: 18px !important;
-  margin-inline-end: 8px !important;
-}
+  function readBoolPref(name, fallback) {
+    const prefs = getPrefs();
+    try {
+      return prefs?.getBoolPref(name, fallback);
+    } catch {
+      return fallback;
+    }
+  }
 
-.hf-swatch-item:hover {
-  background-color: color-mix(in srgb, currentColor 14%, transparent) !important;
-}
+  function readOverrides() {
+    const prefs = getPrefs();
+    let raw = '';
+    try {
+      raw = prefs?.getStringPref(PREF_OVERRIDES, '') || '';
+    } catch {}
+    if (!raw) return {};
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
 
-.hf-swatch-divider {
-  margin: 4px 2px !important;
-}
+  function writeOverrides(overrides) {
+    const prefs = getPrefs();
+    try {
+      prefs?.setStringPref(PREF_OVERRIDES, JSON.stringify(overrides));
+    } catch {}
+  }
 
-/* ==========================================================================
-   Dia-style sidebar top — pinned icon grid + integrated window controls
-   --------------------------------------------------------------------------
-   Scope: the pinned "Essentials" row styled as rounded Dia-style tiles,
-   the Spaces switcher moved up next to the window control buttons (the
-   actual move happens in highlighted-folders.uc.js — CSS can't relocate
-   an element between two separate toolbars), and the sidebar stretched
-   to fill the full window height.
+  function setFolderOverride(folderId, hexColor) {
+    if (!folderId) return;
+    const overrides = readOverrides();
+    overrides[folderId] = hexColor;
+    writeOverrides(overrides);
+  }
 
-   The essentials-grid and top-buttons technique was worked out by
-   reading z1n-k/zia's chrome.css (https://github.com/z1n-k/zia) as
-   reference, per request — these are real native Zen elements
-   (.zen-essentials-container, .tabbrowser-tab[zen-essential],
-   #zen-sidebar-top-buttons), not anything invented; the values below
-   are our own.
-   ========================================================================== */
+  function clearFolderOverride(folderId) {
+    if (!folderId) return;
+    const overrides = readOverrides();
+    if (folderId in overrides) {
+      delete overrides[folderId];
+      writeOverrides(overrides);
+    }
+  }
 
-:root {
-  --dia-essential-radius: 12px;
-  --dia-essential-gap: 3px;
-  --dia-essential-min-width: 54px;
-  --dia-essential-max-width: 120px;
-  --dia-essential-height: 41px;
-  --dia-essential-bg: rgba(255, 255, 255, 0.13);
-  --dia-essential-bg-hover: rgba(255, 255, 255, 0.16);
-  --dia-essential-bottom-space: 8px;
-  --dia-top-row-space: 6.5px;
-}
+  // Stable string hash (djb2) — same input always produces the same output.
+  function hashString(str) {
+    let hash = 5381;
+    for (let i = 0; i < str.length; i++) {
+      hash = ((hash << 5) + hash + str.charCodeAt(i)) >>> 0;
+    }
+    return hash;
+  }
 
-/* Pinned tabs ("Essentials") as a rounded tile grid — a fixed 4-column
-   grid, matching Dia's own row count exactly, instead of auto-fill
-   (which wraps to an inconsistent number per row depending on
-   available width — the uneven "5 then 1" layout you saw). */
-:root[zen-sidebar-expanded="true"] .zen-essentials-container {
-  grid-template-columns: repeat(4, 1fr) !important;
-  gap: var(--dia-essential-gap) !important;
-  padding-bottom: var(--dia-essential-bottom-space) !important;
-}
+  function isTopLevelFolder(folder) {
+    return !folder.parentElement?.closest('zen-folder');
+  }
 
-:root[zen-sidebar-expanded="true"] .zen-essentials-container > .tabbrowser-tab[zen-essential] {
-  min-width: 0 !important;
-  max-width: var(--dia-essential-max-width) !important;
-  width: 100% !important;
-}
+  function colorForFolder(folder, palette, overrides) {
+    const key = folder.id || folder.getAttribute('label') || '';
+    if (overrides[key]) return overrides[key];
+    const hash = hashString(key);
+    return palette[hash % palette.length];
+  }
 
-:root[zen-sidebar-expanded="true"] #zen-essentials {
-  --tab-min-height: var(--dia-essential-height) !important;
-}
+  function applyColorToFolder(folder, options = {}) {
+    const {
+      palette = readPalette(),
+      overrides = readOverrides(),
+      opacity = readStringPref(PREF_OPACITY, '16'),
+      opacityHover = readStringPref(PREF_OPACITY_HOVER, '26'),
+      radius = readStringPref(PREF_RADIUS, ''), // blank = inherit Zen's own radius
+      colorTopLevel = readBoolPref(PREF_COLOR_TOP_LEVEL, true)
+    } = options;
 
-.tabbrowser-tab[zen-essential] > .tab-stack > .tab-background {
-  border-radius: var(--dia-essential-radius) !important;
-}
+    const topLevel = isTopLevelFolder(folder);
+    if (topLevel && !colorTopLevel) {
+      folder.style.removeProperty('--hf-color');
+      return;
+    }
 
-.tabbrowser-tab[zen-essential]:not([visuallyselected]) > .tab-stack > .tab-background {
-  background: var(--dia-essential-bg) !important;
-}
+    folder.style.setProperty('--hf-color', colorForFolder(folder, palette, overrides));
+    folder.style.setProperty('--hf-bg-opacity', `${opacity}%`);
+    folder.style.setProperty('--hf-bg-opacity-hover', `${opacityHover}%`);
+    if (radius) {
+      folder.style.setProperty('--hf-radius', `${radius}px`);
+    } else {
+      folder.style.removeProperty('--hf-radius');
+    }
+  }
 
-.tabbrowser-tab[zen-essential]:not([visuallyselected]):hover > .tab-stack > .tab-background {
-  background: var(--dia-essential-bg-hover) !important;
-}
+  // Full sweep — used on startup, on sidebar mutations (folders added/
+  // renamed), and when a pref that affects every folder changes (palette,
+  // opacity, radius, top-level toggle).
+  function applyFolderColors() {
+    const options = {
+      palette: readPalette(),
+      overrides: readOverrides(),
+      opacity: readStringPref(PREF_OPACITY, '16'),
+      opacityHover: readStringPref(PREF_OPACITY_HOVER, '26'),
+      radius: readStringPref(PREF_RADIUS, ''),
+      colorTopLevel: readBoolPref(PREF_COLOR_TOP_LEVEL, true)
+    };
 
-/* Sidebar top area — window control buttons, now joined by the Spaces
-   switcher (moved here by the script). Extra gap and centered alignment
-   so both sit together cleanly instead of cramped against each other. */
-#zen-sidebar-top-buttons {
-  margin-block: var(--dia-top-row-space) !important;
-  display: flex !important;
-  align-items: center !important;
-  gap: 6px !important;
-}
+    document.querySelectorAll('zen-folder').forEach((folder) => {
+      applyColorToFolder(folder, options);
+    });
+  }
 
-#zen-sidebar-top-buttons .titlebar-buttonbox-container {
-  margin-inline-start: 5px !important;
-  margin-top: 3px !important;
-}
+  // Targeted update — used right after picking/resetting one folder's
+  // color, so only that single element's style changes instead of
+  // rewriting every folder in the sidebar at once. Touching every
+  // zen-folder on every click is what was causing the brief sidebar
+  // flicker after choosing a color.
+  function applyColorToSingleFolder(folder) {
+    if (!folder) return;
+    applyColorToFolder(folder);
+  }
 
-#zen-sidebar-top-buttons #zen-workspaces-button {
-  margin-inline-start: auto !important;
-  margin-inline-end: 6px !important;
-}
+  let scheduled = false;
+  function scheduleApply() {
+    if (scheduled) return;
+    scheduled = true;
+    requestAnimationFrame(() => {
+      scheduled = false;
+      applyFolderColors();
+    });
+  }
 
-/* Full-height sidebar — stretches the sidebar panel edge to edge with
-   no top/bottom gap. Best-effort: if your sidebar is already in Zen's
-   own floating/compact layout mode, this should just reinforce that; if
-   you're in a different layout mode, this may not be the full picture
-   since the floating panel SHAPE itself is a native Zen layout setting,
-   not something this rule creates from scratch. */
-#navigator-toolbox {
-  height: 100% !important;
-  margin-block: 0 !important;
-}
+  function observeSidebar() {
+    const target = document.getElementById('tabbrowser-tabs') || document.documentElement;
+    const observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        if (mutation.type === 'attributes' && mutation.attributeName === 'collapsed') {
+          triggerBounce(mutation.target);
+        }
+      }
+      scheduleApply();
+    });
+    observer.observe(target, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['label', 'id', 'collapsed']
+    });
+  }
 
-/* --------------------------------------------------------------------
-   Window control buttons, restyled as small macOS-style colored dots
-   (Dia's look) instead of Zen's default square min/max/restore/close
-   buttons. These are real native elements
-   (.titlebar-buttonbox-container > .titlebar-buttonbox > .titlebar-button),
-   confirmed via the console to already live inside
-   #zen-sidebar-top-buttons on this setup — nothing needed to move
-   them, just to reshape them.
-   -------------------------------------------------------------------- */
-#zen-sidebar-top-buttons .titlebar-buttonbox-container,
-#zen-sidebar-top-buttons .titlebar-buttonbox {
-  display: flex !important;
-  align-items: center !important;
-  gap: 8px !important;
-  height: auto !important;
-  width: auto !important;
-}
+  // Briefly adds the CSS bounce animation class whenever a folder opens
+  // or closes, then removes it once the animation finishes (falls back
+  // to a timeout if 'animationend' never fires for some reason, so the
+  // class can't get stuck on).
+  function triggerBounce(folder) {
+    if (!folder || folder.tagName !== 'ZEN-FOLDER') return;
+    folder.classList.remove('hf-bounce');
+    // Force reflow so re-adding the class restarts the animation even
+    // if it's still mid-way from a very quick prior toggle.
+    void folder.offsetWidth;
+    folder.classList.add('hf-bounce');
 
-#zen-sidebar-top-buttons .titlebar-button {
-  -moz-appearance: none !important;
-  appearance: none !important;
-  width: 12px !important;
-  height: 12px !important;
-  min-width: 12px !important;
-  min-height: 12px !important;
-  border-radius: 50% !important;
-  padding: 0 !important;
-  margin: 0 !important;
-  border: none !important;
-}
+    const clear = () => folder.classList.remove('hf-bounce');
+    folder.addEventListener('animationend', clear, { once: true });
+    setTimeout(clear, 400);
+  }
 
-#zen-sidebar-top-buttons .titlebar-button > .toolbarbutton-icon,
-#zen-sidebar-top-buttons .titlebar-button > .toolbarbutton-text {
-  display: none !important;
-}
+  function observePrefs() {
+    const prefs = getPrefs();
+    if (!prefs?.addObserver) return;
 
-#zen-sidebar-top-buttons .titlebar-button.titlebar-min {
-  background-color: #febc2e !important;
-}
+    const observer = {
+      observe(_subject, topic, prefName) {
+        if (topic === 'nsPref:changed' && String(prefName || '').startsWith(PREF_BRANCH)) {
+          applyFolderColors();
+        }
+      }
+    };
 
-#zen-sidebar-top-buttons .titlebar-button.titlebar-max,
-#zen-sidebar-top-buttons .titlebar-button.titlebar-restore {
-  background-color: #28c840 !important;
-}
+    try {
+      prefs.addObserver(PREF_BRANCH, observer);
+    } catch {}
+  }
 
-#zen-sidebar-top-buttons .titlebar-button.titlebar-close {
-  background-color: #ff5f57 !important;
-}
+  // Opens the OS-native color picker via a throwaway <input type="color">.
+  // This is the standard way to get a real color picker from a privileged
+  // chrome document without building custom UI.
+  function pickColor(defaultColor) {
+    return new Promise((resolve) => {
+      const input = document.createElement('input');
+      input.type = 'color';
+      input.value = /^#[0-9a-f]{6}$/i.test(defaultColor || '') ? defaultColor : '#7c9eff';
+      input.style.position = 'fixed';
+      input.style.top = '-9999px';
+      input.style.opacity = '0';
+      input.style.pointerEvents = 'none';
+      document.documentElement.appendChild(input);
 
-#zen-sidebar-top-buttons .titlebar-button:hover {
-  filter: brightness(1.15) !important;
-}
+      let settled = false;
+      const finish = (value) => {
+        if (settled) return;
+        settled = true;
+        input.remove();
+        resolve(value);
+      };
+
+      input.addEventListener('change', () => finish(input.value));
+      input.addEventListener('blur', () => {
+        // Give 'change' a chance to fire first if the picker was accepted.
+        setTimeout(() => finish(null), 250);
+      });
+
+      input.click();
+    });
+  }
+
+  // Mirrors Zen's own folder-detection logic from ZenFolders.mjs so we
+  // identify the right-clicked folder the same way Zen does internally.
+  function resolveFolderFromEvent(event) {
+    const target = event.explicitOriginalTarget;
+    let folder = null;
+
+    if (typeof gBrowser?.isTabGroupLabel === 'function' && gBrowser.isTabGroupLabel(target)) {
+      folder = target.group;
+    } else if (
+      target?.parentElement &&
+      typeof gBrowser?.isTabGroupLabel === 'function' &&
+      gBrowser.isTabGroupLabel(target.parentElement)
+    ) {
+      folder = target.parentElement.group;
+    } else if (
+      target?.parentElement?.isZenFolder &&
+      target?.classList?.contains('tab-group-label-container')
+    ) {
+      folder = target.parentElement;
+    }
+
+    return folder?.isZenFolder ? folder : null;
+  }
+
+  function buildColorMenu(menupopup, getPendingFolder) {
+    const menu = document.createXULElement('menu');
+    menu.id = COLOR_MENU_ID;
+    menu.setAttribute('label', 'Highlight Color');
+
+    const popup = document.createXULElement('menupopup');
+    popup.id = SWATCH_POPUP_ID;
+    menu.appendChild(popup);
+
+    SWATCH_COLORS.forEach((color, index) => {
+      const item = document.createXULElement('menuitem');
+      item.classList.add('hf-swatch-item');
+      item.setAttribute('label', SWATCH_NAMES[index] || color);
+      item.setAttribute('tooltiptext', color);
+      item.setAttribute('image', swatchIconDataUri(color));
+      item.setAttribute('data-color', color);
+      popup.appendChild(item);
+    });
+
+    // A visible divider line, separating the custom-color option below
+    // from the fixed presets above it.
+    const divider = document.createXULElement('menuseparator');
+    divider.classList.add('hf-swatch-divider');
+    popup.appendChild(divider);
+
+    const customItem = document.createXULElement('menuitem');
+    customItem.id = CUSTOM_SWATCH_ID;
+    customItem.classList.add('hf-swatch-item', 'hf-swatch-custom-item');
+    customItem.setAttribute('data-custom', 'true');
+    customItem.setAttribute('label', 'Custom Color…');
+    customItem.setAttribute('tooltiptext', 'Custom Color…');
+    customItem.setAttribute('image', neutralIconDataUri());
+    popup.appendChild(customItem);
+
+    popup.addEventListener('command', async (event) => {
+      const folder = getPendingFolder();
+      if (!folder) return;
+
+      if (event.target.getAttribute('data-custom') === 'true') {
+        const overrides = readOverrides();
+        const current = overrides[folder.id] || null;
+        const chosen = await pickColor(current);
+        if (chosen) {
+          setFolderOverride(folder.id, chosen);
+          applyColorToSingleFolder(folder);
+        }
+        return;
+      }
+
+      const color = event.target.getAttribute('data-color');
+      if (color) {
+        setFolderOverride(folder.id, color);
+        applyColorToSingleFolder(folder);
+      }
+    });
+
+    return menu;
+  }
+
+  function ensureMenuItems(menupopup, getPendingFolder) {
+    if (document.getElementById(COLOR_MENU_ID)) return;
+
+    const anchor = document.getElementById(ANCHOR_ITEM_ID);
+    const colorMenu = buildColorMenu(menupopup, getPendingFolder);
+
+    const resetColorItem = document.createXULElement('menuitem');
+    resetColorItem.id = RESET_COLOR_ID;
+    resetColorItem.setAttribute('label', 'Reset Folder Color');
+
+    if (anchor) {
+      anchor.after(colorMenu, resetColorItem);
+    } else {
+      menupopup.appendChild(colorMenu);
+      menupopup.appendChild(resetColorItem);
+    }
+  }
+
+  function updateCustomSwatchPreview(folder) {
+    const customItem = document.getElementById(CUSTOM_SWATCH_ID);
+    if (!customItem) return;
+
+    const overrides = readOverrides();
+    const current = folder ? overrides[folder.id] : null;
+    const isPreset = current && SWATCH_COLORS.some((c) => c.toLowerCase() === current.toLowerCase());
+
+    if (current && !isPreset) {
+      customItem.setAttribute('image', swatchIconDataUri(current));
+      customItem.setAttribute('tooltiptext', `Custom Color… (currently ${current})`);
+    } else {
+      customItem.setAttribute('image', neutralIconDataUri());
+      customItem.setAttribute('tooltiptext', 'Custom Color…');
+    }
+  }
+
+  function initContextMenu() {
+    const menupopup = document.getElementById(CONTEXT_MENU_ID);
+    if (!menupopup) return;
+
+    // Track the right-clicked folder from the raw 'contextmenu' event
+    // itself (capture phase, on the whole document) rather than trying to
+    // re-derive it inside 'popupshowing'. This popup only ever opens when
+    // a folder's own header was right-clicked (Zen sets the `context`
+    // attribute only on that element), so whatever we captured here is
+    // guaranteed fresh for the popup that's about to show.
+    let lastRightClickedFolder = null;
+    document.addEventListener(
+      'contextmenu',
+      (event) => {
+        const folder = resolveFolderFromEvent(event);
+        if (folder) lastRightClickedFolder = folder;
+      },
+      true
+    );
+
+    const getPendingFolder = () => lastRightClickedFolder;
+
+    menupopup.addEventListener('popupshowing', () => {
+      ensureMenuItems(menupopup, getPendingFolder);
+      updateCustomSwatchPreview(lastRightClickedFolder);
+
+      const hasFolder = !!lastRightClickedFolder;
+      document.getElementById(COLOR_MENU_ID)?.toggleAttribute('disabled', !hasFolder);
+      document.getElementById(RESET_COLOR_ID)?.toggleAttribute('disabled', !hasFolder);
+    });
+
+    menupopup.addEventListener('command', (event) => {
+      if (!lastRightClickedFolder) return;
+      if (event.target.id === RESET_COLOR_ID) {
+        clearFolderOverride(lastRightClickedFolder.id);
+        applyColorToSingleFolder(lastRightClickedFolder);
+      }
+    });
+  }
+
+  // Direct click-based bounce trigger — catches the actual click that
+  // opens/closes a folder, rather than relying only on observing the
+  // [collapsed] attribute change (which didn't reliably fire the
+  // animation on its own). Runs alongside that observer, not instead of
+  // it, as a second, more direct path to the same effect.
+  function initClickBounce() {
+    document.addEventListener(
+      'click',
+      (event) => {
+        const label = event.target?.closest?.('.tab-group-label-container');
+        if (!label) return;
+        const folder = label.parentElement;
+        if (folder?.tagName !== 'ZEN-FOLDER') return;
+        // Wait a frame so [collapsed] has already toggled by the time
+        // anything else reacts to it; doesn't actually matter for the
+        // bounce itself, which just restarts a fixed animation.
+        requestAnimationFrame(() => triggerBounce(folder));
+      },
+      true
+    );
+  }
+
+  // Moves the native Spaces/workspace switcher (<zen-workspace-icons
+  // id="zen-workspaces-button">) up into #zen-sidebar-top-buttons, so it
+  // sits alongside the window controls instead of in the bottom bar.
+  // The window control buttons themselves (.titlebar-buttonbox-container)
+  // turned out to already live in #zen-sidebar-top-buttons on this
+  // setup — no relocation needed for those; see the styling section in
+  // userChrome.css for what actually makes them look like Dia's dots.
+  function moveTopRowElements() {
+    // The window control buttons (.titlebar-buttonbox-container) turned
+    // out to already live inside #zen-sidebar-top-buttons on this setup
+    // — confirmed via the console: its own parentElement is
+    // #zen-sidebar-top-buttons already, with a real, non-zero rendered
+    // size. There was nothing to relocate; the earlier "move it" logic
+    // was solving a problem that didn't exist, so it's removed. All
+    // that's actually needed here is moving the Spaces switcher, which
+    // genuinely does default to the bottom bar.
+    const topButtons = document.getElementById('zen-sidebar-top-buttons');
+    if (!topButtons) return;
+
+    const spacesButton = document.getElementById('zen-workspaces-button');
+    if (spacesButton && spacesButton.parentElement !== topButtons) {
+      topButtons.appendChild(spacesButton);
+    }
+  }
+
+  function observeTopRow() {
+    const navBar = document.getElementById('nav-bar');
+    if (navBar) {
+      new MutationObserver(() => moveTopRowElements()).observe(navBar, { childList: true });
+    }
+
+    // Also re-run whenever compact mode itself gets toggled, since that
+    // attribute lives on the root element, not inside navigator-toolbox.
+    new MutationObserver(() => moveTopRowElements()).observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['zen-compact-mode']
+    });
+  }
+
+  function init() {
+    applyFolderColors();
+    observeSidebar();
+    observePrefs();
+    initContextMenu();
+    initClickBounce();
+    moveTopRowElements();
+    observeTopRow();
+  }
+
+  if (document.readyState === 'complete') {
+    init();
+  } else {
+    window.addEventListener('load', init, { once: true });
+  }
+})();
