@@ -2,7 +2,7 @@
 // @name           Highlighted Folders
 // @description    Colors each Zen folder, with a real "Change Color…" entry
 //                  added to the folder's own right-click menu.
-// @version        2.8.0
+// @version        2.9.0
 // ==/UserScript==
 
 (() => {
@@ -531,12 +531,29 @@
     );
   }
 
+  // Moves the native Spaces/workspace switcher (<zen-workspace-icons
+  // id="zen-workspaces-button">) from its default home in the bottom
+  // bar (#zen-sidebar-foot-buttons) up into the top bar
+  // (#zen-sidebar-top-buttons, where the window control buttons live),
+  // so Spaces sit alongside them instead of at the bottom. This is a
+  // real DOM move, not just a CSS reposition — the two bars are
+  // separate toolbars, not one shared flex container, so CSS order
+  // alone can't do this.
+  function moveSpacesSwitcherToTop() {
+    const spacesButton = document.getElementById('zen-workspaces-button');
+    const topBar = document.getElementById('zen-sidebar-top-buttons');
+    if (!spacesButton || !topBar) return;
+    if (spacesButton.parentElement === topBar) return; // already moved
+    topBar.appendChild(spacesButton);
+  }
+
   function init() {
     applyFolderColors();
     observeSidebar();
     observePrefs();
     initContextMenu();
     initClickBounce();
+    moveSpacesSwitcherToTop();
   }
 
   if (document.readyState === 'complete') {
