@@ -2,7 +2,7 @@
 // @name           Highlighted Folders
 // @description    Colors each Zen folder, with a real "Change Color…" entry
 //                  added to the folder's own right-click menu.
-// @version        3.1.0
+// @version        3.2.0
 // ==/UserScript==
 
 (() => {
@@ -531,53 +531,12 @@
     );
   }
 
-  // Moves the native Spaces/workspace switcher (<zen-workspace-icons
-  // id="zen-workspaces-button">) up into #zen-sidebar-top-buttons, so it
-  // sits alongside the window controls instead of in the bottom bar.
-  // The window control buttons themselves (.titlebar-buttonbox-container)
-  // turned out to already live in #zen-sidebar-top-buttons on this
-  // setup — no relocation needed for those; see the styling section in
-  // userChrome.css for what actually makes them look like Dia's dots.
-  function moveTopRowElements() {
-    // The window control buttons (.titlebar-buttonbox-container) turned
-    // out to already live inside #zen-sidebar-top-buttons on this setup
-    // — confirmed via the console: its own parentElement is
-    // #zen-sidebar-top-buttons already, with a real, non-zero rendered
-    // size. There was nothing to relocate; the earlier "move it" logic
-    // was solving a problem that didn't exist, so it's removed. All
-    // that's actually needed here is moving the Spaces switcher, which
-    // genuinely does default to the bottom bar.
-    const topButtons = document.getElementById('zen-sidebar-top-buttons');
-    if (!topButtons) return;
-
-    const spacesButton = document.getElementById('zen-workspaces-button');
-    if (spacesButton && spacesButton.parentElement !== topButtons) {
-      topButtons.appendChild(spacesButton);
-    }
-  }
-
-  function observeTopRow() {
-    const navBar = document.getElementById('nav-bar');
-    if (navBar) {
-      new MutationObserver(() => moveTopRowElements()).observe(navBar, { childList: true });
-    }
-
-    // Also re-run whenever compact mode itself gets toggled, since that
-    // attribute lives on the root element, not inside navigator-toolbox.
-    new MutationObserver(() => moveTopRowElements()).observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['zen-compact-mode']
-    });
-  }
-
   function init() {
     applyFolderColors();
     observeSidebar();
     observePrefs();
     initContextMenu();
     initClickBounce();
-    moveTopRowElements();
-    observeTopRow();
   }
 
   if (document.readyState === 'complete') {
