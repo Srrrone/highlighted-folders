@@ -130,6 +130,19 @@ zen-folder[collapsed][has-active] {
     inset 0 0 0 1px color-mix(in srgb, var(--hf-resolved-color) 22%, transparent) !important;
 }
 
+/* [collapsed][has-active] and [collapsed]:hover tie in specificity
+   (both are element + 2 selectors), so whichever comes later in the
+   file wins regardless of whether you're actually hovering — which
+   silently blocked the hover brightening on any collapsed folder that
+   already contained the active tab. This rule has one more selector
+   than either of those, so it always wins outright when both conditions
+   are true, guaranteeing hover still visibly brightens things further
+   even on a folder that's already highlighted for containing the
+   active tab. */
+zen-folder[collapsed][has-active]:hover {
+  background-color: color-mix(in srgb, var(--hf-resolved-color) var(--hf-bg-opacity-hover), transparent) !important;
+}
+
 /* Note: the label text intentionally does NOT switch to a different
    color in any of the states above (open, hovered, collapsed+active) —
    it stays the same light-dark-adjusted accent color set on the base
