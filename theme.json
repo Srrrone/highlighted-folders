@@ -1,9 +1,9 @@
 {
   "id": "highlighted-folders",
   "name": "Highlighted Folders",
-  "description": "Colored folder grouping for Zen Browser, plus a Dia-style pinned-icon grid and top-of-sidebar layout.",
+  "description": "Colored folder grouping for Zen Browser, with an inline swatch-row color picker in the folder's right-click menu.",
   "author": "Srrrone",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "style": {
     "chrome": "userChrome.css"
   },
