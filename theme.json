@@ -3,7 +3,7 @@
   "name": "Highlighted Folders",
   "description": "Colored folder grouping for Zen Browser, plus a Dia-style pinned-icon grid and top-of-sidebar layout.",
   "author": "Srrrone",
-  "version": "0.13.0",
+  "version": "0.13.1",
   "style": {
     "chrome": "userChrome.css"
   },
